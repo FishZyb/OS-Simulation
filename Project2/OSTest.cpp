@@ -73,6 +73,8 @@ void createProcess() {
     newProcess.isWaiting = false;
 
     processes.push_back(newProcess);
+
+    //将新创建的进程添加到就绪队列前面
     readyQueue.push(newProcess);
 
     //将子进程的ID添加到父进程的children列表中
@@ -81,19 +83,31 @@ void createProcess() {
     cout << "创建进程成功！" << endl;
 }
 
-// 进程调度，使用RR调度算法
+// 进程调度，使用RR调度算法（时间片轮转调度算法）
 void schedule() {
     if (!readyQueue.empty()) {
+        //更新当前运行的进程状态,并将当前进程放到就绪队列末尾
+        for (PCB& process : processes) {
+            if (process.status == "运行") {
+                process.status = "就绪";
+                readyQueue.push(process);
+                break;
+            }
+        }
+        
         PCB runningProcess = readyQueue.front();
         readyQueue.pop();
-
         cout << "正在运行的进程：" << runningProcess.pid << endl;
+        //执行一个时间片
+        //这里不设置任何时间片，用"-"指令表示一个节拍向前推进进程
 
-        // 执行一个时间片
-
-        // 将当前进程放回就绪队列末尾
-        runningProcess.status = "就绪";
-        readyQueue.push(runningProcess);
+        //更新process列表中对应进程的状态
+        for (PCB& process : processes) {
+            if (process.pid == runningProcess.pid) {
+                process.status = "运行";
+                break;
+            }
+        }
 
         cout << "======================================" << endl;
         cout << "请输入命令：";
