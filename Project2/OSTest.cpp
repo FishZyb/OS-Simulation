@@ -114,6 +114,37 @@ void schedule() {
     }
 }
 
+//创建子进程
+void forkProcess() {
+    //找到当前正在运行的进程
+    PCB* runningProcess = nullptr;
+    for (PCB& process : processes) {
+        if (process.status == "运行") {
+            runningProcess = &process;
+            break;
+        }
+    }
+    if (runningProcess == nullptr) {
+        cout << "没有正在运行的进程，无法创建子进程！" << endl;
+        return;
+    }
+    //创建一个新的子进程，它是当前正在运行的进程的副本
+    PCB newProcess = *runningProcess;
+    //为新创建的子进程分配一个唯一且递增的PID
+    newProcess.pid = processes.back().pid + 1;
+    //设置新创建的子进程状态为就绪
+    newProcess.status = "就绪";
+    //将子进程ID添加到父进程children列表中
+    runningProcess->children.push_back(newProcess.pid);
+    processes.push_back(newProcess);
+
+    //将新创建的子进程添加到就绪队列末尾
+    readyQueue.push(newProcess);
+       
+    cout << "创建子进程成功！" << endl;
+    
+}
+
 // 处理磁盘IO请求
 void handleIORequest(int diskNumber, int track) {
     if (diskNumber >= 0 && diskNumber < diskCount) {
@@ -190,8 +221,10 @@ void showProcesses() {
     cout << "当前运行的进程：" << endl;
     for (PCB process : processes) {
         if (process.status == "运行") {
-            cout << "进程ID：" << process.pid << endl;
-            // 输出其他进程信息
+            cout << "进程ID：" << process.pid << "，父进程ID：" << process.parentPid << "，子进程ID：";
+            for (int childPid : process.children) {
+                cout << childPid << " ";
+            }
             cout << endl;
         }
     }
@@ -203,8 +236,10 @@ void showProcesses() {
         readyQueue.pop();
         tempQueue.push(process);
 
-        cout << "进程ID：" << process.pid << endl;
-        // 输出其他进程信息
+        cout << "进程ID：" << process.pid << "，父进程ID：" << process.parentPid << "，子进程ID：";
+        for (int childPid : process.children) {
+            cout << childPid << " ";
+        }
         cout << endl;
     }
 
@@ -268,28 +303,30 @@ int main() {
             schedule();
         }
         else if (command == "fork") {
+            forkProcess();
             // TODO: 实现fork命令的逻辑
-            if (!readyQueue.empty()) {
-                PCB parentProcess = readyQueue.front();
-                readyQueue.pop();
+        //    if (!readyQueue.empty()) {
+        //        PCB parentProcess = readyQueue.front();
+        //        readyQueue.pop();
 
-                PCB childProcess;
-                childProcess.pid = processes.size() + 1;
-                childProcess.parentPid = parentProcess.pid;
-                childProcess.status = "就绪";
-                childProcess.fileName = "";
+        //        PCB childProcess;
+        //        childProcess.pid = processes.size() + 1;
+        //        childProcess.parentPid = parentProcess.pid;
+        //        childProcess.status = "就绪";
+        //        childProcess.fileName = "";
 
-                processes.push_back(childProcess);
-                readyQueue.push(childProcess);
+        //        processes.push_back(childProcess);
+        //        readyQueue.push(childProcess);
 
-                // 将子进程的ID添加到父进程的children列表中
-                parentProcess.children.push_back(childProcess.pid);
+        //        // 将子进程的ID添加到父进程的children列表中
+        //        parentProcess.children.push_back(childProcess.pid);
 
-                cout << "进程" << childProcess.pid << "创建成功！" << endl;
+        //        cout << "进程" << childProcess.pid << "创建成功！" << endl;
 
-                // 将父进程放回就绪队列末尾
-                readyQueue.push(parentProcess);
-            }
+        //        // 将父进程放回就绪队列末尾
+        //        readyQueue.push(parentProcess);
+        //    }
+
         }
         else if (command == "exit") {
             // TODO: 实现exit命令的逻辑
