@@ -176,17 +176,27 @@ void showProcesses() {
     cout << "当前运行的进程：" << endl;
     for (PCB process : processes) {
         if (process.status == "运行") {
-            cout << process.pid << endl;
+            cout << "进程ID：" << process.pid << endl;
+            // 输出其他进程信息
+            cout << endl;
         }
     }
 
     cout << "就绪队列中的进程：" << endl;
+    queue<PCB> tempQueue;
     while (!readyQueue.empty()) {
         PCB process = readyQueue.front();
         readyQueue.pop();
+        tempQueue.push(process);
 
-        cout << process.pid << endl;
+        cout << "进程ID：" << process.pid << endl;
+        // 输出其他进程信息
+        cout << endl;
+    }
 
+    while (!tempQueue.empty()) {
+        PCB process = tempQueue.front();
+        tempQueue.pop();
         readyQueue.push(process);
     }
 
@@ -236,7 +246,7 @@ int main() {
 
     string command;
     cout << "请输入命令：";
-    while (cin >> command) {
+    while (getline(cin,command)) {
         if (command == "new") {
             createProcess();
         }
@@ -354,6 +364,7 @@ int main() {
             requestMemory(pid);
         }
         else if (command == "show p") {
+            //cout << "调试路过" << endl;
             showProcesses();
         }
         else if (command == "show i") {
