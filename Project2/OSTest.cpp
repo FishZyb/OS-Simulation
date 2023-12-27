@@ -37,6 +37,7 @@ vector<PCB> processes; // 进程列表
 queue<PCB> readyQueue; // 就绪队列
 
 vector<vector<int>> memory; // 内存分配表，记录每个页面所属的进程和页号
+vector<int> LRUList;//LRU列表，记录页面访问顺序
 
 vector<queue<IORequest>> ioQueues; // 硬盘IO队列
 
@@ -346,18 +347,65 @@ void wait() {
 // 处理磁盘IO请求
 void handleIORequest(int diskNumber, int track) {
     if (diskNumber >= 0 && diskNumber < diskCount) {
-        if (!readyQueue.empty()) {
-            PCB requestingProcess = readyQueue.front();
-            readyQueue.pop();
+        PCB* runningProcess = nullptr;
 
+        // 查找当前正在运行的进程
+        for (PCB& process : processes) {
+            if (process.status == "运行") {
+                runningProcess = &process;
+                break;
+            }
+        }
+
+        if (runningProcess != nullptr) {
             IORequest ioRequest;
-            ioRequest.pid = requestingProcess.pid;
+            ioRequest.pid = runningProcess->pid;
             ioRequest.track = track;
 
+            // 将IO请求添加到硬盘队列中，并将进程状态更改为“等待”
             ioQueues[diskNumber].push(ioRequest);
+            runningProcess->status = "等待";
 
-            cout << "进程" << requestingProcess.pid << "请求磁盘" << diskNumber << "读取或写入磁道" << track << endl;
+            cout << "进程" << runningProcess->pid << "请求磁盘" << diskNumber << "读取或写入磁道" << track << endl;
+
+            // 检查当前是否有正在运行的进程，如果没有，则从就绪队列中调度一个进程
+            bool hasRunningProcess = false;
+            for (const PCB& process : processes) {
+                if (process.status == "运行") {
+                    hasRunningProcess = true;
+                    break;
+                }
+            }
+
+            if (!hasRunningProcess && !readyQueue.empty()) {
+                while (!readyQueue.empty()) {
+                    PCB nextProcess = readyQueue.front();
+                    readyQueue.pop();
+
+                    // 如果从就绪队列中调度的进程是进程1（系统进程），则跳过它并尝试调度下一个进程
+                    if (nextProcess.pid == 1) {
+                        continue;
+                    }
+
+                    for (PCB& process : processes) {
+                        if (process.pid == nextProcess.pid) {
+                            process.status = "运行";
+                            cout << "进程" << process.pid << "已被调度为运行状态。" << endl;
+                            break;
+                        }
+                    }
+
+                    break;  // 调度成功后退出循环
+                }
+            }
+
         }
+        else {
+            cout << "没有正在运行的进程，无法处理磁盘IO请求。" << endl;
+        }
+    }
+    else {
+        cout << "磁盘号超出范围。" << endl;
     }
 }
 
@@ -368,38 +416,146 @@ void handleIODone(int diskNumber) {
             IORequest ioRequest = ioQueues[diskNumber].front();
             ioQueues[diskNumber].pop();
 
-            cout << "磁盘" << diskNumber << "完成进程" << ioRequest.pid << "的IO请求" << endl;
+            PCB* requestingProcess = nullptr;
+
+            for (PCB& process : processes) {
+                if (process.pid == ioRequest.pid) {
+                    requestingProcess = &process;
+                    break;
+                }
+            }
+
+            if (requestingProcess != nullptr) {
+                requestingProcess->status = "就绪";
+                readyQueue.push(*requestingProcess);
+            }
+
+            cout << "磁盘" << diskNumber << "完成进程" << ioRequest.pid << "的IO请求，进程已加入就绪队列。" << endl;
+        }
+        else {
+            cout << "当前磁盘没有等待的IO请求。" << endl;
+        }
+    }
+    else {
+        cout << "磁盘号超出范围。" << endl;
+    }
+
+    // 检查当前是否有正在运行的进程，如果没有，则从就绪队列中调度一个进程
+    bool hasRunningProcess = false;
+    for (const PCB& process : processes) {
+        if (process.status == "运行") {
+            hasRunningProcess = true;
+            break;
+        }
+    }
+
+    if (!hasRunningProcess && !readyQueue.empty()) {
+        PCB nextProcess = readyQueue.front();
+        readyQueue.pop();
+
+        for (PCB& process : processes) {
+            if (process.pid == nextProcess.pid) {
+                process.status = "运行";
+                cout << "进程" << process.pid << "已被调度为运行状态。" << endl;
+                break;
+            }
         }
     }
 }
 
 // 请求内存分配
 void requestMemory(int pid) {
+    int freeFrame = -1;
 
+    for (int i = 0; i < memory.size(); ++i) {
+        if (memory[i].empty()) {
+            freeFrame = i;
+            break;
+        }
+    }
+
+    if (freeFrame == -1) {
+        if (static_cast<int>(memory.size()) * pageSize < memoryCapacity) {
+            vector<int> newPage = { pid, static_cast<int>(memory.size()) };
+            memory.push_back(newPage);
+            LRUList.push_back(static_cast<int>(memory.size()) - 1);
+            cout << "为进程" << pid << "分配页面" << static_cast<int>(memory.size()) - 1 << endl;
+        }
+        else {
+            // 使用LRU算法替换页面
+            int leastRecentlyUsedFrame = LRUList.front();
+            LRUList.erase(LRUList.begin());
+            vector<int> replacedPage = { pid, leastRecentlyUsedFrame };
+            memory[leastRecentlyUsedFrame] = replacedPage;
+            LRUList.push_back(leastRecentlyUsedFrame);
+            cout << "为进程" << pid << "替换页面" << leastRecentlyUsedFrame << endl;
+        }
+    }
+    else {
+        vector<int> newPage = { pid, freeFrame };
+        memory[freeFrame] = newPage;
+        LRUList.push_back(freeFrame);
+        cout << "为进程" << pid << "分配页面" << freeFrame << endl;
+    }
 }
 
 // 释放内存
 void releaseMemory(int pid) {
-
-
+    for (int i = 0; i < memory.size(); ++i) {
+        if (!memory[i].empty() && memory[i][0] == pid) {
+            memory[i].clear();
+            LRUList.erase(remove(LRUList.begin(), LRUList.end(), i), LRUList.end());
+            cout << "释放进程" << pid << "的页面" << i << endl;
+        }
+    }
 }
 
+// 处理逻辑地址
+void handleAddress(int address) {
+    PCB* runningProcess = nullptr;
+
+    for (PCB& process : processes) {
+        if (process.status == "运行") {
+            runningProcess = &process;
+            break;
+        }
+    }
+
+    if (runningProcess != nullptr) {
+        int pageNumber = address / pageSize;
+        int offset = address % pageSize;
+
+        for (int i = 0; i < memory.size(); ++i) {
+            if (!memory[i].empty() && memory[i][0] == runningProcess->pid && memory[i][1] == pageNumber) {
+                LRUList.erase(remove(LRUList.begin(), LRUList.end(), i), LRUList.end());
+                LRUList.push_back(i);
+                cout << "进程" << runningProcess->pid << "访问页面" << pageNumber << "，物理地址为：" << i * pageSize + offset << endl;
+                return;
+            }
+        }
+
+        cout << "进程" << runningProcess->pid << "访问的页面" << pageNumber << "不在内存中，需要请求内存分配。" << endl;
+        requestMemory(runningProcess->pid);
+    }
+    else {
+        cout << "没有正在运行的进程，无法处理逻辑地址。" << endl;
+    }
+}
 
 
 // 显示硬盘IO状态
 void showIOStatus() {
-    cout << "======================================" << endl;
     for (int i = 0; i < diskCount; i++) {
+        cout << "======================================" << endl;
         cout << "硬盘" << i << "上的进程：" << endl;
 
-        queue<IORequest> ioQueue = ioQueues[i];
-        while (!ioQueue.empty()) {
-            IORequest ioRequest = ioQueue.front();
-            ioQueue.pop();
+        queue<IORequest> tempQueue = ioQueues[i];  // 创建一个临时队列以避免修改原始队列
 
-            cout << "进程" << ioRequest.pid << "正在读取或写入磁道" << ioRequest.track << endl;
+        while (!tempQueue.empty()) {
+            IORequest ioRequest = tempQueue.front();
+            tempQueue.pop();
 
-            ioQueue.push(ioRequest);
+            cout << "进程ID：" << ioRequest.pid << "，磁道：" << ioRequest.track << endl;
         }
     }
 
@@ -457,9 +613,9 @@ int main() {
             handleIODone(diskNumber);
         }
         else if (command.substr(0, 2) == "m ") {
-            int pid = stoi(command.substr(2));
+            int address = stoi(command.substr(2));
 
-            requestMemory(pid);
+            handleAddress(address);
         }
         else if (command == "show p") {
             showProcesses();
