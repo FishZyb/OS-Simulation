@@ -83,6 +83,47 @@ void createProcess() {
     cout << "创建进程成功！" << endl;
 }
 
+// 显示当前进程和就绪队列中的进程
+void showProcesses() {
+    cout << "======================================" << endl;
+    cout << "当前运行的进程：" << endl;
+    for (PCB process : processes) {
+        if (process.status == "运行") {
+            cout << "进程ID：" << process.pid << "，父进程ID：" << process.parentPid << "，子进程ID：";
+            for (int childPid : process.children) {
+                cout << childPid << " ";
+            }
+            cout << endl;
+        }
+        //如果此时processes进程列表中没有被标记为运行的进程
+        //则直接从就绪队列中拿出一个进程，标记为运行状态，加入processes列表，并从队列中移除
+        //此逻辑待实现
+        
+    }
+
+    cout << "就绪队列中的进程：" << endl;
+    queue<PCB> tempQueue;
+    while (!readyQueue.empty()) {
+        PCB process = readyQueue.front();
+        readyQueue.pop();
+        tempQueue.push(process);
+
+        cout << "进程ID：" << process.pid << "，父进程ID：" << process.parentPid << "，子进程ID：";
+        for (int childPid : process.children) {
+            cout << childPid << " ";
+        }
+        cout << endl;
+    }
+
+    while (!tempQueue.empty()) {
+        PCB process = tempQueue.front();
+        tempQueue.pop();
+        readyQueue.push(process);
+    }
+
+    cout << "======================================" << endl;
+}
+
 // 进程调度，使用RR调度算法（时间片轮转调度算法）
 void schedule() {
     if (!readyQueue.empty()) {
@@ -116,32 +157,46 @@ void schedule() {
 
 //创建子进程
 void forkProcess() {
-    //找到当前正在运行的进程
-    PCB* runningProcess = nullptr;
+    PCB runningProcess;
+    bool isRunning = false;
+
+    // 查找正在运行的进程
     for (PCB& process : processes) {
         if (process.status == "运行") {
-            runningProcess = &process;
+            runningProcess = process;
+            isRunning = true;
             break;
         }
     }
-    if (runningProcess == nullptr) {
-        cout << "没有正在运行的进程，无法创建子进程！" << endl;
-        return;
-    }
-    //创建一个新的子进程，它是当前正在运行的进程的副本
-    PCB newProcess = *runningProcess;
-    //为新创建的子进程分配一个唯一且递增的PID
-    newProcess.pid = processes.back().pid + 1;
-    //设置新创建的子进程状态为就绪
-    newProcess.status = "就绪";
-    //将子进程ID添加到父进程children列表中
-    runningProcess->children.push_back(newProcess.pid);
-    processes.push_back(newProcess);
 
-    //将新创建的子进程添加到就绪队列末尾
-    readyQueue.push(newProcess);
-       
-    cout << "创建子进程成功！" << endl;
+    if (isRunning) {
+        PCB childProcess;
+        //为新进程选择PID时，从2(1属于第一个系统进程)开始向上。不要重复使用已终止进程的PID。
+        childProcess.pid = processes.back().pid + 1;
+        childProcess.parentPid = runningProcess.pid; // 父 进 程 是 当 前 正 在 运 行 的 进 程 
+        childProcess.status = "就绪";
+        childProcess.fileName = "";
+        childProcess.isZombie = false;
+        childProcess.isWaiting = false;
+
+        //将子进程ID添加到父进程children列表中
+        for (PCB& process : processes) {
+            if (process.pid == runningProcess.pid) {
+                process.children.push_back(childProcess.pid);
+                break;
+            }
+        }
+
+        processes.push_back(childProcess);
+
+        // 将新创建的子 进 程 添加 到 就 绪 队 列 的末尾
+        readyQueue.push(childProcess);
+
+        cout << "创建子 进 程 成 功 ！" << endl;
+    }
+    else {
+        cout << "没有正在运行的 进 程 ，无法创建子 进 程 。" << endl;
+    }
     
 }
 
@@ -177,80 +232,16 @@ void handleIODone(int diskNumber) {
 
 // 请求内存分配
 void requestMemory(int pid) {
-    // TODO: 实现请求内存分配的逻辑
-    int numPages = memoryCapacity / pageSize; // 计算内存中页面的数量
-    // 检查是否有足够的空闲页面
-    int count = 0;
-    for (int i = 0; i < numPages; i++) {
-        if (memory[i].empty()) {
-            count++;
-            if (count == 4) { // 如果有连续的4个空闲页面，则分配给进程
-                for (int j = i - 3; j <= i; j++) {
-                    memory[j] = { pid, j - (i - 3) };
-                }
-                cout << "进程" << pid << "获得了" << count << "个连续的页面" << endl;
-                return;
-            }
-        }
-        else {
-            count = 0;
-        }
-    }
 
-    // 如果没有连续的4个空闲页面，则无法分配给进程
-    cout << "内存中没有足够的空闲页面，进程" << pid << "无法分配内存" << endl;
 }
 
 // 释放内存
 void releaseMemory(int pid) {
-    // TODO: 实现释放内存的逻辑
-    int numPages = memoryCapacity / pageSize; // 计算内存中页面的数量
-    for (int i = 0; i < numPages; i++) {
-        if (!memory[i].empty() && memory[i][0] == pid) { // 找到属于该进程的页面
-            memory[i].clear(); // 清空该页面
-        }
-    }
 
-    cout << "进程" << pid << "释放了内存" << endl;
 
 }
 
-// 显示当前进程和就绪队列中的进程
-void showProcesses() {
-    cout << "======================================" << endl;
-    cout << "当前运行的进程：" << endl;
-    for (PCB process : processes) {
-        if (process.status == "运行") {
-            cout << "进程ID：" << process.pid << "，父进程ID：" << process.parentPid << "，子进程ID：";
-            for (int childPid : process.children) {
-                cout << childPid << " ";
-            }
-            cout << endl;
-        }
-    }
 
-    cout << "就绪队列中的进程：" << endl;
-    queue<PCB> tempQueue;
-    while (!readyQueue.empty()) {
-        PCB process = readyQueue.front();
-        readyQueue.pop();
-        tempQueue.push(process);
-
-        cout << "进程ID：" << process.pid << "，父进程ID：" << process.parentPid << "，子进程ID：";
-        for (int childPid : process.children) {
-            cout << childPid << " ";
-        }
-        cout << endl;
-    }
-
-    while (!tempQueue.empty()) {
-        PCB process = tempQueue.front();
-        tempQueue.pop();
-        readyQueue.push(process);
-    }
-
-    cout << "======================================" << endl;
-}
 
 // 显示硬盘IO状态
 void showIOStatus() {
@@ -304,99 +295,10 @@ int main() {
         }
         else if (command == "fork") {
             forkProcess();
-            // TODO: 实现fork命令的逻辑
-        //    if (!readyQueue.empty()) {
-        //        PCB parentProcess = readyQueue.front();
-        //        readyQueue.pop();
-
-        //        PCB childProcess;
-        //        childProcess.pid = processes.size() + 1;
-        //        childProcess.parentPid = parentProcess.pid;
-        //        childProcess.status = "就绪";
-        //        childProcess.fileName = "";
-
-        //        processes.push_back(childProcess);
-        //        readyQueue.push(childProcess);
-
-        //        // 将子进程的ID添加到父进程的children列表中
-        //        parentProcess.children.push_back(childProcess.pid);
-
-        //        cout << "进程" << childProcess.pid << "创建成功！" << endl;
-
-        //        // 将父进程放回就绪队列末尾
-        //        readyQueue.push(parentProcess);
-        //    }
-
         }
         else if (command == "exit") {
-            // TODO: 实现exit命令的逻辑
-            if (!readyQueue.empty()) {
-                PCB currentProcess = readyQueue.front();
-                readyQueue.pop();
-
-                // 终止当前进程
-                cout << "进程" << currentProcess.pid << "终止！" << endl;
-                currentProcess.status = "终止";
-
-                // 释放当前进程使用的内存
-
-                // 处理级联终止
-                for (int childPid : currentProcess.children) {
-                    for (PCB& process : processes) {
-                        if (process.pid == childPid) {
-                            process.status = "终止";
-                            process.isZombie = true;
-                            break;
-                        }
-                    }
-                }
-
-                // 处理僵尸进程
-                if (currentProcess.parentPid != -1) {
-                    for (PCB& process : processes) {
-                        if (process.pid == currentProcess.parentPid) {
-                            if (process.isWaiting) {
-                                process.status = "就绪";
-                                readyQueue.push(process);
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
         }
         else if (command == "wait") {
-            // TODO: 实现wait命令的逻辑
-            if (!readyQueue.empty()) {
-                PCB currentProcess = readyQueue.front();
-                readyQueue.pop();
-
-                // 检查是否存在僵尸子进程
-                bool hasZombieChild = false;
-                for (int childPid : currentProcess.children) {
-                    for (PCB& process : processes) {
-                        if (process.pid == childPid && process.isZombie) {
-                            hasZombieChild = true;
-                            // 删除僵尸子进程的PCB
-                            processes.erase(remove_if(processes.begin(), processes.end(),
-                                [&](const PCB& p) { return p.pid == childPid; }), processes.end());
-                            break;
-                        }
-                    }
-                }
-
-                // 如果存在僵尸子进程，立即继续使用CPU
-                if (hasZombieChild) {
-                    cout << "存在僵尸子进程，进程" << currentProcess.pid << "继续执行！" << endl;
-                    readyQueue.push(currentProcess);
-                }
-                else {
-                    // 进程转到就绪队列的末尾
-                    currentProcess.status = "等待";
-                    currentProcess.isWaiting = true;
-                    readyQueue.push(currentProcess);
-                }
-            }
         }
         else if (command.substr(0, 2) == "d ") {
             int diskNumber = stoi(command.substr(2, 1));
@@ -415,7 +317,6 @@ int main() {
             requestMemory(pid);
         }
         else if (command == "show p") {
-            //cout << "调试路过" << endl;
             showProcesses();
         }
         else if (command == "show i") {
