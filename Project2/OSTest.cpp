@@ -474,9 +474,11 @@ void requestMemory(int pid) {
         }
     }
 
+    int timestamp = static_cast<int>(time(nullptr));  // 获取当前时间戳
+
     if (freeFrame == -1) {
         if (static_cast<int>(memory.size()) * pageSize < memoryCapacity) {
-            vector<int> newPage = { pid, static_cast<int>(memory.size()) };
+            vector<int> newPage = { pid, static_cast<int>(memory.size()), timestamp };
             memory.push_back(newPage);
             LRUList.push_back(static_cast<int>(memory.size()) - 1);
             cout << "为进程" << pid << "分配页面" << static_cast<int>(memory.size()) - 1 << endl;
@@ -485,18 +487,30 @@ void requestMemory(int pid) {
             // 使用LRU算法替换页面
             int leastRecentlyUsedFrame = LRUList.front();
             LRUList.erase(LRUList.begin());
-            vector<int> replacedPage = { pid, leastRecentlyUsedFrame };
+            vector<int> replacedPage = { pid, leastRecentlyUsedFrame, timestamp };
             memory[leastRecentlyUsedFrame] = replacedPage;
             LRUList.push_back(leastRecentlyUsedFrame);
             cout << "为进程" << pid << "替换页面" << leastRecentlyUsedFrame << endl;
         }
     }
     else {
-        vector<int> newPage = { pid, freeFrame };
+        vector<int> newPage = { pid, freeFrame, timestamp };
         memory[freeFrame] = newPage;
         LRUList.push_back(freeFrame);
         cout << "为进程" << pid << "分配页面" << freeFrame << endl;
     }
+
+    //// 输出内存中的所有页框信息
+    //cout << "页框\t页面\tPID\t时间戳" << endl;
+    //for (int i = 0; i < memory.size(); ++i) {
+    //    const auto& frame = memory[i];
+    //    if (!frame.empty()) {
+    //        cout << i << "\t" << frame[1] << "\t" << frame[0] << "\t" << frame[2] << endl;
+    //    }
+    //    else {
+    //        cout << i << "\t空闲" << endl;
+    //    }
+    //}
 }
 
 // 释放内存
@@ -525,17 +539,37 @@ void handleAddress(int address) {
         int pageNumber = address / pageSize;
         int offset = address % pageSize;
 
+        bool pageInMemory = false;
         for (int i = 0; i < memory.size(); ++i) {
             if (!memory[i].empty() && memory[i][0] == runningProcess->pid && memory[i][1] == pageNumber) {
                 LRUList.erase(remove(LRUList.begin(), LRUList.end(), i), LRUList.end());
                 LRUList.push_back(i);
                 cout << "进程" << runningProcess->pid << "访问页面" << pageNumber << "，物理地址为：" << i * pageSize + offset << endl;
-                return;
+                pageInMemory = true;
+                break;
             }
         }
 
-        cout << "进程" << runningProcess->pid << "访问的页面" << pageNumber << "不在内存中，需要请求内存分配。" << endl;
-        requestMemory(runningProcess->pid);
+        // 如果访问的页面不在内存中，则请求内存分配
+        if (!pageInMemory) {
+            cout << "进程" << runningProcess->pid << "访问的页面" << pageNumber << "不在内存中，需要请求内存分配。" << endl;
+            requestMemory(runningProcess->pid);  // 传递当前运行的进程ID
+        }
+
+        // 将当前运行的进程移回到就绪队列末尾
+        runningProcess->status = "就绪";
+        readyQueue.push(*runningProcess);
+
+        // 将就绪队列开头的进程设置为运行状态
+        PCB nextProcess = readyQueue.front();
+        readyQueue.pop();
+        for (PCB& process : processes) {
+            if (process.pid == nextProcess.pid) {
+                process.status = "运行";
+                cout << "进程" << process.pid << "已被调度为运行状态。" << endl;
+                break;
+            }
+        }
     }
     else {
         cout << "没有正在运行的进程，无法处理逻辑地址。" << endl;
@@ -564,20 +598,16 @@ void showIOStatus() {
 
 // 显示内存状态
 void showMemoryStatus() {
-    cout << "======================================" << endl;
-    for (int i = 0; i < memory.size(); i++) {
-        vector<int> page = memory[i];
-
-        if (!page.empty()) {
-            int processId = page[0];
-            int pageNumber = page[1];
-
-            cout << "页框" << i << "中的页面：" << endl;
-            cout << "进程ID：" << processId << "，页号：" << pageNumber << endl;
+    cout << "页框\t页面\tPID\t时间戳" << endl;
+    for (int i = 0; i < memory.size(); ++i) {
+        const auto& frame = memory[i];
+        if (!frame.empty()) {
+            cout << i << "\t" << frame[1] << "\t" << frame[0] << "\t" << frame[2] << endl;
+        }
+        else {
+            cout << i << "\t空闲" << endl;
         }
     }
-
-    cout << "======================================" << endl;
 }
 
 int main() {
