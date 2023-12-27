@@ -16,6 +16,11 @@ struct PCB {
     bool isWaiting;//是否正在等待子进程终止
 };
 
+// 为 PCB 结构体定义 operator== 运算符
+bool operator==(const PCB& a, const PCB& b) {
+    return a.pid == b.pid;
+}
+
 // 硬盘IO请求结构体
 struct IORequest {
     int pid; // 进程ID
@@ -60,45 +65,72 @@ void initialize() {
     initialProcess.fileName = "";
 
     processes.push_back(initialProcess);
+
+    ioQueues.resize(diskCount);
+
 }
 
-// 创建新进程
 void createProcess() {
     PCB newProcess;
     newProcess.pid = processes.size() + 1;
-    newProcess.parentPid = 1; // 父进程为初始进程
-    newProcess.status = "就绪";
+    newProcess.parentPid = 1;
+    newProcess.status = "运行";
     newProcess.fileName = "";
     newProcess.isZombie = false;
     newProcess.isWaiting = false;
 
     processes.push_back(newProcess);
 
-    //将新创建的进程添加到就绪队列前面
-    readyQueue.push(newProcess);
-
-    //将子进程的ID添加到父进程的children列表中
     processes[0].children.push_back(newProcess.pid);
 
+    // 如果系统进程仍在运行，则将其状态更改为就绪并将其放入就绪队列
+    for (PCB& process : processes) {
+        if (process.pid == 1 && process.status == "运行") {
+            process.status = "就绪";
+            readyQueue.push(process);
+            break;
+        }
+    }
+
+
     cout << "创建进程成功！" << endl;
+
+
 }
 
-// 显示当前进程和就绪队列中的进程
 void showProcesses() {
     cout << "======================================" << endl;
     cout << "当前运行的进程：" << endl;
-    for (PCB process : processes) {
+
+    bool hasRunningProcess = false;
+    bool hasNonSystemProcess = false;
+
+    for (PCB& process : processes) {
+        if (process.pid != 1) {
+            hasNonSystemProcess = true;
+        }
         if (process.status == "运行") {
             cout << "进程ID：" << process.pid << "，父进程ID：" << process.parentPid << "，子进程ID：";
             for (int childPid : process.children) {
                 cout << childPid << " ";
             }
             cout << endl;
+            hasRunningProcess = true;
         }
-        //如果此时processes进程列表中没有被标记为运行的进程
-        //则直接从就绪队列中拿出一个进程，标记为运行状态，加入processes列表，并从队列中移除
-        //此逻辑待实现
-        
+    }
+
+    // 如果没有非系统进程，则显示系统进程
+    if (!hasNonSystemProcess && !hasRunningProcess) {
+        for (PCB& process : processes) {
+            if (process.pid == 1 && process.status != "等待") {
+                cout << "进程ID：" << process.pid << "，父进程ID：" << process.parentPid << "，子进程ID：";
+                for (int childPid : process.children) {
+                    cout << childPid << " ";
+                }
+                cout << endl;
+                break;
+            }
+        }
     }
 
     cout << "就绪队列中的进程：" << endl;
@@ -108,11 +140,13 @@ void showProcesses() {
         readyQueue.pop();
         tempQueue.push(process);
 
-        cout << "进程ID：" << process.pid << "，父进程ID：" << process.parentPid << "，子进程ID：";
-        for (int childPid : process.children) {
-            cout << childPid << " ";
+        if (process.status != "等待" && process.pid != 1) {
+            cout << "进程ID：" << process.pid << "，父进程ID：" << process.parentPid << "，子进程ID：";
+            for (int childPid : process.children) {
+                cout << childPid << " ";
+            }
+            cout << endl;
         }
-        cout << endl;
     }
 
     while (!tempQueue.empty()) {
@@ -124,10 +158,9 @@ void showProcesses() {
     cout << "======================================" << endl;
 }
 
-// 进程调度，使用RR调度算法（时间片轮转调度算法）
 void schedule() {
     if (!readyQueue.empty()) {
-        //更新当前运行的进程状态,并将当前进程放到就绪队列末尾
+
         for (PCB& process : processes) {
             if (process.status == "运行") {
                 process.status = "就绪";
@@ -135,14 +168,11 @@ void schedule() {
                 break;
             }
         }
-        
+
         PCB runningProcess = readyQueue.front();
         readyQueue.pop();
         cout << "正在运行的进程：" << runningProcess.pid << endl;
-        //执行一个时间片
-        //这里不设置任何时间片，用"-"指令表示一个节拍向前推进进程
 
-        //更新process列表中对应进程的状态
         for (PCB& process : processes) {
             if (process.pid == runningProcess.pid) {
                 process.status = "运行";
@@ -155,33 +185,32 @@ void schedule() {
     }
 }
 
-//创建子进程
 void forkProcess() {
-    PCB runningProcess;
+    PCB* runningProcess = nullptr;
     bool isRunning = false;
 
-    // 查找正在运行的进程
     for (PCB& process : processes) {
         if (process.status == "运行") {
-            runningProcess = process;
+            runningProcess = &process;
             isRunning = true;
             break;
         }
     }
 
-    if (isRunning) {
+    if (isRunning && runningProcess != nullptr) {
+
         PCB childProcess;
-        //为新进程选择PID时，从2(1属于第一个系统进程)开始向上。不要重复使用已终止进程的PID。
+
         childProcess.pid = processes.back().pid + 1;
-        childProcess.parentPid = runningProcess.pid; // 父 进 程 是 当 前 正 在 运 行 的 进 程 
         childProcess.status = "就绪";
         childProcess.fileName = "";
         childProcess.isZombie = false;
         childProcess.isWaiting = false;
 
-        //将子进程ID添加到父进程children列表中
+        // 在创建子进程时，确保子进程的父进程是当前正在运行的进程
         for (PCB& process : processes) {
-            if (process.pid == runningProcess.pid) {
+            if (process.status == "运行") {
+                childProcess.parentPid = process.pid;
                 process.children.push_back(childProcess.pid);
                 break;
             }
@@ -189,15 +218,129 @@ void forkProcess() {
 
         processes.push_back(childProcess);
 
-        // 将新创建的子 进 程 添加 到 就 绪 队 列 的末尾
         readyQueue.push(childProcess);
 
-        cout << "创建子 进 程 成 功 ！" << endl;
+        cout << "创建子进程成功！" << endl;
     }
     else {
-        cout << "没有正在运行的 进 程 ，无法创建子 进 程 。" << endl;
+        cout << "没有正在运行的进程,无法创建子进程。" << endl;
     }
-    
+}
+
+void exit() {
+    PCB* runningProcess = nullptr;
+    bool isRunning = false;
+
+    for (PCB& process : processes) {
+        if (process.status == "运行") {
+            runningProcess = &process;
+            isRunning = true;
+            break;
+        }
+    }
+
+    if (isRunning && runningProcess != nullptr) {
+
+        // 如果退出的进程是系统进程，不允许执行exit命令
+        if (runningProcess->pid == 1) {
+            cout << "系统进程不能执行exit命令。" << endl;
+            return;
+        }
+
+        runningProcess->status = "僵尸";
+        runningProcess->isZombie = true;
+
+        // 将就绪队列中的下一个进程设置为运行状态
+        if (!readyQueue.empty()) {
+            PCB nextRunningProcess = readyQueue.front();
+            readyQueue.pop();
+
+            for (PCB& process : processes) {
+                if (process.pid == nextRunningProcess.pid) {
+                    process.status = "运行";
+                    break;
+                }
+            }
+        }
+
+        // 将父进程从等待状态转为就绪状态，并加入到就绪队列的末尾
+        for (PCB& process : processes) {
+            if (process.pid == runningProcess->parentPid && process.isWaiting) {
+                process.status = "就绪";
+                process.isWaiting = false;
+                readyQueue.push(process);
+                break;
+            }
+        }
+
+        // 检查是否还有其他非系统进程在运行或处于就绪状态
+        bool hasNonSystemProcess = false;
+        for (PCB& process : processes) {
+            if (process.pid != 1 && (process.status == "运行" || process.status == "就绪")) {
+                hasNonSystemProcess = true;
+                break;
+            }
+        }
+
+        // 如果没有其他非系统进程在运行或处于就绪状态，则将系统进程1设置为运行状态
+        if (!hasNonSystemProcess) {
+            for (PCB& process : processes) {
+                if (process.pid == 1) {
+                    process.status = "运行";
+                    break;
+                }
+            }
+        }
+
+    }
+    else {
+        cout << "没有正在运行的进程，无法执行exit命令。" << endl;
+    }
+}
+
+void wait() {
+    PCB* runningProcess = nullptr;
+    bool isRunning = false;
+
+    for (PCB& process : processes) {
+        if (process.status == "运行") {
+            runningProcess = &process;
+            isRunning = true;
+            break;
+        }
+    }
+
+    if (isRunning && runningProcess != nullptr) {
+
+        // 如果等待的进程是系统进程，不允许执行wait命令
+        if (runningProcess->pid == 1) {
+            cout << "系统进程不能执行wait命令。" << endl;
+            return;
+        }
+
+        runningProcess->status = "等待";
+        runningProcess->isWaiting = true;
+
+        // 将就绪队列中的下一个非系统进程设置为运行状态
+        while (!readyQueue.empty()) {
+            PCB nextRunningProcess = readyQueue.front();
+            readyQueue.pop();
+
+            if (nextRunningProcess.pid != 1) {
+                for (PCB& process : processes) {
+                    if (process.pid == nextRunningProcess.pid) {
+                        process.status = "运行";
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+
+    }
+    else {
+        cout << "没有正在运行的进程，无法执行wait命令。" << endl;
+    }
 }
 
 // 处理磁盘IO请求
@@ -297,8 +440,10 @@ int main() {
             forkProcess();
         }
         else if (command == "exit") {
+            exit();
         }
         else if (command == "wait") {
+            wait();
         }
         else if (command.substr(0, 2) == "d ") {
             int diskNumber = stoi(command.substr(2, 1));
